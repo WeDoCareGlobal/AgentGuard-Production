@@ -113,7 +113,7 @@ class OmniGuardClient:
         health_client = None
         try:
             base = self.base_url.rstrip("/")
-            health_base = base.removesuffix("/v1")
+            health_base = base[:-3] if base.endswith("/v1") else base
             health_client = httpx.AsyncClient(base_url=health_base, timeout=self.timeout)
             resp = await health_client.get("/healthz")
             return resp.status_code == 200 and resp.json().get("status") == "healthy"
