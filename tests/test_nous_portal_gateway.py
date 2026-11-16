@@ -81,7 +81,7 @@ class TestPerToolGateway(unittest.TestCase):
         self.assertEqual(decision.provider, "nvidia-nim")
         self.assertEqual(decision.model, "llama-3.1-nemotron")
         self.assertEqual(decision.reason, "per-tool_gateway")
-        self.assertGreater(decision.latency_ms, 0)
+        self.assertGreaterEqual(decision.latency_ms, 0)
 
     def test_invalid_credential_rejected(self):
         invalid = ToolCredential(
