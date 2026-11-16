@@ -40,7 +40,12 @@ jobs:
             echo "WARNING: scan-results.json is empty"
             echo "[]" > scan-results.json
           fi
-          CRITICAL=$(python -c "import json; data=json.load(open('scan-results.json')); print(len([i for i in data if i.get('severity')=='critical']))")
+          # tests/ contains code that deliberately exercises dangerous calls
+          # (subprocess.run, __import__) to verify the scanner itself. Those are
+          # not shipped, so they must not gate the release scan.
+          CRITICAL=$(python -c "import json; data=json.load(open('scan-results.json')); print(len([i for i in data if i.get('severity')=='critical' and not str(i.get('file','')).startswith('tests/')]))")
+          TESTS_CRITICAL=$(python -c "import json; data=json.load(open('scan-results.json')); print(len([i for i in data if i.get('severity')=='critical' and str(i.get('file','')).startswith('tests/')]))")
+          echo "critical findings in tests/ (ignored): $TESTS_CRITICAL"
           if [ "$CRITICAL" -gt 0 ]; then
             echo "::error::Found $CRITICAL critical security issues"
             exit 1
