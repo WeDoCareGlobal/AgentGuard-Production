@@ -170,7 +170,7 @@ def _scan_text_file(filepath: Path, content: str) -> list[dict[str, Any]]:
 
 # Directories that are never production code. `tests` is excluded because test
 # suites legitimately spawn subprocesses to exercise the scanner itself.
-SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", ".pytest_cache"}
+SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", ".pytest_cache", "tests"}
 
 
 def scan_directory(path: Path) -> list[dict[str, Any]]:
