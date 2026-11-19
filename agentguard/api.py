@@ -41,7 +41,7 @@ class Halt(BaseModel):
 async def _omniguard_inspect(agent: str, tool: str, payload: Any) -> str | None:
     """Inspect tool call via OmniGuard. Returns block reason if blocked, None if allowed."""
     if not OMNIGUARD_AVAILABLE:
-        return "OmniGuard inspection unavailable"
+        raise HTTPException(status_code=503, detail="OmniGuard inspection unavailable")
     try:
         omniguard = get_omniguard_client()
         messages = [
@@ -53,10 +53,12 @@ async def _omniguard_inspect(agent: str, tool: str, payload: Any) -> str | None:
             return result.blocked_reason or "OmniGuard policy violation"
         # No request-bound signature verifier is configured yet.
         # An unverified ALLOW must never authorize an external effect.
-        return "Unverified OmniGuard decision"
+        raise HTTPException(status_code=403, detail="Unverified OmniGuard decision")
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 - fail closed without logging payloads
         log.warning("OmniGuard inspection unavailable or invalid")
-        return "OmniGuard inspection unavailable"
+        raise HTTPException(status_code=503, detail="OmniGuard inspection unavailable")
 
 def create_app(guard: Guard, api_key: str, admin_key: str, enable_omniguard: bool = True) -> FastAPI:
     if len(api_key) < 32 or len(admin_key) < 32 or hmac.compare_digest(api_key, admin_key):
