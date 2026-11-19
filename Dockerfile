@@ -1,5 +1,4 @@
-# TODO: pin to a verified multi-platform digest after a successful image build.
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 WORKDIR /app
 
@@ -17,10 +16,10 @@ COPY LICENSE .
 COPY agentguard/ ./agentguard/
 
 # Install package (no cache to keep image small)
-RUN pip install --no-cache-dir -e . -r requirements.lock
+RUN pip install --no-cache-dir --break-system-packages -e . -r requirements.lock
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser /app
+RUN mkdir -p /app/data && chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser
