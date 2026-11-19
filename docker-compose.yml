@@ -1,17 +1,23 @@
-# Local development only. Do not expose this service directly to the internet.
+# Local development only. Keep the API bound to loopback.
 services:
   api:
     build: .
+    command: ["agentguard", "run", "--policy", "/app/policy.yaml", "--host", "0.0.0.0"]
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./policy.yaml:/app/policy.yaml:ro
-      - ./data:/app/data
+      - agentguard-data:/app/data
     environment:
       AGENTGUARD_POLICY: /app/policy.yaml
       AGENTGUARD_DB_PATH: /app/data/audit.db
-      AGENTGUARD_API_KEY: ${AGENTGUARD_API_KEY:?Set AGENTGUARD_API_KEY (32+ chars)}
-      AGENTGUARD_ADMIN_KEY: ${AGENTGUARD_ADMIN_KEY:?Set AGENTGUARD_ADMIN_KEY (32+ chars)}
-      AGENTGUARD_AUDIT_KEY: ${AGENTGUARD_AUDIT_KEY:?Set a stable independent audit key (32+ chars)}
-      AGENTGUARD_OMNIGUARD: ${AGENTGUARD_OMNIGUARD:-false}
+      AGENTGUARD_API_KEY: ${AGENTGUARD_API_KEY:?Set AGENTGUARD_API_KEY}
+      AGENTGUARD_ADMIN_KEY: ${AGENTGUARD_ADMIN_KEY:?Set AGENTGUARD_ADMIN_KEY}
+      AGENTGUARD_AUDIT_KEY: ${AGENTGUARD_AUDIT_KEY:?Set AGENTGUARD_AUDIT_KEY}
+      AGENTGUARD_OMNIGUARD: "true"
+      OMNIGUARD_API_KEY: ${OMNIGUARD_API_KEY:?Set OMNIGUARD_API_KEY}
+      OMNIGUARD_BASE_URL: ${OMNIGUARD_BASE_URL:?Set reachable gateway URL ending in /v1}
     restart: unless-stopped
+
+volumes:
+  agentguard-data:
