@@ -9,8 +9,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .core import Guard
-
-logger = logging.getLogger(__name__)
+from .identity import TokenAuthority
+from .oidc import OIDCVerifier
 
 # OmniGuard integration
 try:
@@ -18,7 +18,9 @@ try:
     OMNIGUARD_AVAILABLE = True
 except ImportError:
     OMNIGUARD_AVAILABLE = False
-    OmniGuardDecision = None
+    OmniGuardDecision: Any = None  # type: ignore[no-redef]
+
+log = logging.getLogger(__name__)
 
 class Call(BaseModel):
     agent: str = Field(min_length=1, max_length=128)
@@ -39,7 +41,7 @@ class Halt(BaseModel):
 async def _omniguard_inspect(agent: str, tool: str, payload: Any) -> str | None:
     """Inspect tool call via OmniGuard. Returns block reason if blocked, None if allowed."""
     if not OMNIGUARD_AVAILABLE:
-        raise HTTPException(status_code=503, detail="OmniGuard inspection unavailable")
+        return "OmniGuard inspection unavailable"
     try:
         omniguard = get_omniguard_client()
         messages = [
@@ -49,12 +51,12 @@ async def _omniguard_inspect(agent: str, tool: str, payload: Any) -> str | None:
         result = await omniguard.inspect(messages)
         if result.decision == OmniGuardDecision.BLOCK:
             return result.blocked_reason or "OmniGuard policy violation"
-    except Exception:
-        logger.exception("OmniGuard inspection failed; denying execution")
-        raise HTTPException(status_code=503, detail="OmniGuard inspection unavailable")
-    if result.decision != OmniGuardDecision.ALLOW:
-        raise HTTPException(status_code=403, detail="OmniGuard did not explicitly allow execution")
-    return None
+        # No request-bound signature verifier is configured yet.
+        # An unverified ALLOW must never authorize an external effect.
+        return "Unverified OmniGuard decision"
+    except Exception:  # noqa: BLE001 - fail closed without logging payloads
+        log.warning("OmniGuard inspection unavailable or invalid")
+        return "OmniGuard inspection unavailable"
 
 def create_app(guard: Guard, api_key: str, admin_key: str, enable_omniguard: bool = True) -> FastAPI:
     if len(api_key) < 32 or len(admin_key) < 32 or hmac.compare_digest(api_key, admin_key):
@@ -100,28 +102,32 @@ def attach_optional_console(app: FastAPI, guard: Guard, admin_key: str) -> None:
     app.include_router(console_router(guard, admin_key))
 
 
-def attach_scoped_execution(app: FastAPI, guard: Guard, authority: TokenAuthority) -> None:
+def attach_scoped_execution(app: FastAPI, guard: Guard, authority: TokenAuthority, enable_omniguard: bool = True) -> None:
     """Add a bearer-authenticated endpoint without changing legacy key endpoints."""
 
     @app.post('/v1/scoped/execute')
-    def scoped_execute(call: Call, request: Request):
+    async def scoped_execute(call: Call, request: Request):
         auth = request.headers.get('authorization', '')
         if not auth.startswith('Bearer '):
             raise HTTPException(401, 'Unauthorized')
         principal = authority.verify(auth[7:], 'execute', agent=call.agent)
         if principal is None:
             raise HTTPException(403, 'Forbidden')
+        if enable_omniguard:
+            reason = await _omniguard_inspect(call.agent, call.tool, call.payload)
+            if reason:
+                raise HTTPException(status_code=403, detail="OmniGuard inspection denied")
         return guard.execute(call.agent, call.tool, call.payload, call.request_id, call.approval)
 
 
-def attach_oidc_execution(app: FastAPI, guard: Guard, verifier: OIDCVerifier) -> None:
+def attach_oidc_execution(app: FastAPI, guard: Guard, verifier: OIDCVerifier, enable_omniguard: bool = True) -> None:
     """Opt-in OIDC-protected execution route; requires verified execute scope.
 
     Subject is bound to agent identity; clients cannot impersonate another agent.
     """
 
     @app.post('/v1/oidc/execute')
-    def oidc_execute(call: Call, request: Request):
+    async def oidc_execute(call: Call, request: Request):
         authorization = request.headers.get('authorization', '')
         if not authorization.startswith('Bearer ') or len(authorization) > 16400:
             raise HTTPException(status_code=401, detail='Unauthorized')
@@ -130,4 +136,8 @@ def attach_oidc_execution(app: FastAPI, guard: Guard, verifier: OIDCVerifier) ->
             raise HTTPException(status_code=401, detail='Unauthorized')
         if principal.subject != call.agent:
             raise HTTPException(status_code=403, detail='Agent mismatch')
+        if enable_omniguard:
+            reason = await _omniguard_inspect(call.agent, call.tool, call.payload)
+            if reason:
+                raise HTTPException(status_code=403, detail="OmniGuard inspection denied")
         return guard.execute(call.agent, call.tool, call.payload, call.request_id, call.approval)
