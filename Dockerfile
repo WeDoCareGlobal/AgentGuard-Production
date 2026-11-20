@@ -14,7 +14,6 @@ COPY requirements.lock .
 COPY README.md .
 COPY LICENSE .
 COPY agentguard/ ./agentguard/
-COPY tests/ ./tests/
 
 # Install package (no cache to keep image small)
 RUN pip install --no-cache-dir --break-system-packages -e . -r requirements.lock

@@ -22,7 +22,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --break-system-packages -e ".[dev]"
-          pip install --break-system-packages bandit pytest-cov
+          pip install --break-system-packages bandit pytest-cov pip-audit
+      - name: Test with coverage
+        run: python -m pytest tests/ -v --cov=agentguard --cov-report=xml --cov-fail-under=80 -m 'not integration'
       - name: Lint
         run: ruff check agentguard/
       - name: Typecheck
@@ -37,9 +39,7 @@ jobs:
           path: bandit-report.json
           if-no-files-found: warn
       - name: Security scan (pip-audit)
-        run: |
-          python -m pip install pip-audit
-          python -m pip_audit --format json --output pip-audit-report.json
+        run: python -m pip_audit --format json --output pip-audit-report.json
       - name: Upload dependency audit findings
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,8 +47,6 @@ jobs:
           name: dependency-audit-findings
           path: pip-audit-report.json
           if-no-files-found: warn
-      - name: Test with coverage
-        run: python -m pytest tests/ -v --cov=agentguard --cov-report=xml --cov-fail-under=70 -m 'not integration'
 
   security:
     runs-on: ubuntu-latest
