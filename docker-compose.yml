@@ -1,3 +1,4 @@
+# Local development only. Keep the API bound to loopback.
 services:
   api:
     build: .
@@ -16,6 +17,7 @@ services:
       AGENTGUARD_OMNIGUARD: "true"
       OMNIGUARD_API_KEY: ${OMNIGUARD_API_KEY:?Set OMNIGUARD_API_KEY}
       OMNIGUARD_BASE_URL: ${OMNIGUARD_BASE_URL:?Set reachable gateway URL ending in /v1}
+    restart: unless-stopped
 
 volumes:
   agentguard-data:

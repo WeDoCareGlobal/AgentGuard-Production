@@ -1,48 +1,60 @@
-"""Regression tests for OmniGuard's fail-closed AgentGuard boundary."""
+"""Regression tests for fail-closed OmniGuard authorization."""
 import asyncio
 from unittest.mock import AsyncMock, Mock
+
+import pytest
+from fastapi import HTTPException
 
 from agentguard import api
 from agentguard.omniguard_client import OmniGuardDecision, OmniGuardResult
 
 
-def test_inspection_failure_blocks(monkeypatch):
+def _result(decision, **kwargs):
+    return OmniGuardResult(
+        decision=decision,
+        confidence=1.0,
+        signature="test",
+        latency_ms=1.0,
+        tier_latencies={},
+        **kwargs,
+    )
+
+
+def _client(monkeypatch, result=None, error=None):
     client = Mock()
-    client.inspect = AsyncMock(side_effect=ConnectionError("offline"))
+    client.inspect = AsyncMock(return_value=result) if error is None else AsyncMock(side_effect=error)
     monkeypatch.setattr(api, "OMNIGUARD_AVAILABLE", True)
     monkeypatch.setattr(api, "get_omniguard_client", lambda: client)
-    assert asyncio.run(api._omniguard_inspect("agent", "tool", {"text": "hello"})) is not None
 
 
-def test_missing_integration_blocks(monkeypatch):
+def test_missing_integration_fails_closed(monkeypatch):
     monkeypatch.setattr(api, "OMNIGUARD_AVAILABLE", False)
-    assert asyncio.run(api._omniguard_inspect("agent", "tool", {})) is not None
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(api._omniguard_inspect("agent", "tool", {}))
+    assert exc.value.status_code == 503
 
 
-def test_unverified_allow_is_denied(monkeypatch):
-    client = Mock()
-    client.inspect = AsyncMock(return_value=OmniGuardResult(
-        decision=OmniGuardDecision.ALLOW,
-        confidence=1.0,
-        signature="test",
-        latency_ms=1.0,
-        tier_latencies={},
-    ))
-    monkeypatch.setattr(api, "OMNIGUARD_AVAILABLE", True)
-    monkeypatch.setattr(api, "get_omniguard_client", lambda: client)
-    assert asyncio.run(api._omniguard_inspect("agent", "tool", {})) == "Unverified OmniGuard decision"
+def test_inspection_error_fails_closed(monkeypatch):
+    _client(monkeypatch, error=ConnectionError("offline"))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(api._omniguard_inspect("agent", "tool", {}))
+    assert exc.value.status_code == 503
 
 
-def test_explicit_block_rejects(monkeypatch):
-    client = Mock()
-    client.inspect = AsyncMock(return_value=OmniGuardResult(
-        decision=OmniGuardDecision.BLOCK,
-        confidence=1.0,
-        signature="test",
-        latency_ms=1.0,
-        tier_latencies={},
-        blocked_reason="policy",
-    ))
-    monkeypatch.setattr(api, "OMNIGUARD_AVAILABLE", True)
-    monkeypatch.setattr(api, "get_omniguard_client", lambda: client)
+def test_unknown_decision_fails_closed(monkeypatch):
+    _client(monkeypatch, result=Mock(decision="UNKNOWN"))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(api._omniguard_inspect("agent", "tool", {}))
+    assert exc.value.status_code == 403
+
+
+def test_allow_without_verified_signature_fails_closed(monkeypatch):
+    _client(monkeypatch, result=_result(OmniGuardDecision.ALLOW))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(api._omniguard_inspect("agent", "tool", {}))
+    assert exc.value.status_code == 403
+
+
+def test_explicit_block_is_rejected(monkeypatch):
+    _client(monkeypatch, result=_result(OmniGuardDecision.BLOCK, blocked_reason="policy"))
     assert asyncio.run(api._omniguard_inspect("agent", "tool", {})) == "policy"
